@@ -1,0 +1,1371 @@
+/* eslint-disable  func-names */
+/* eslint-disable  no-console */
+
+const Alexa = require('ask-sdk');
+const https = require('https');
+const util = require('util')
+
+//const datetime = require('date-and-time');
+let outputText = ""
+var search_type_enabled = false
+
+//CONSTANTS --------------------------------------------------------------------------
+const SKILL_NAME = 'USC Libraries Search';
+const HELP_MESSAGE = 'You can ask me a title to search and I may find some entires!... How may I help you? ';
+
+const HELP_REPROMPT_1 = 'You can say - Search title Harry Potter, or Search for Author Ernest Hemingway.';
+const HELP_REPROMPT_2 = 'What can I help you with? Ask me to search any title or any author! ';
+const STOP_MESSAGE = 'Thank you for your time. Goodbye and Fight on! ';
+
+const ABOUTUSC = 'The University of Southern California is a private research university \
+in Los Angeles, California. Founded in 1880, it is the oldest private research university in California. \
+USC has historically educated a large number of the nation\'s business leaders and professionals.';
+
+
+//17 library names
+const libnames = [ 'ACCOUNTING','AFA','CINEMA','DOHENY','EAST','BUSINESS','GRANDDEPOS','LEAVEY','MUSIC','MED',
+'ONEARCHIVE','PHILOSOPHY','SCIENCE','SPECCOLL','VKC','DEN'];
+
+const displaynames = ['Accounting','Architecture and Fine Arts','Cinematic Arts','Doheny Memorial',
+'East Asian','Gaughan and Tiberti','Grand Avenue','Leavey','Music','Norris Medical',
+'ONE Archives','Hoose Library of Philosophy','Science and Engineering','Special Collections','VKC',
+'Wilson Dental'];
+
+//SEARCH THIS
+var NUMBER = 3;
+
+const skillBuilder = Alexa.SkillBuilders.custom();
+
+const API_KEY = 'l7xxf9f0edd451204e7f8e268c9e4d83eb9d';
+const API_KEY_2 = 'l7xx26fd3a8cb099462e8747e26e73c84d49 ';
+
+const QUERY_TYPE = 'Everything'; //'LibraryCatalog'
+const TOPIC = 'Hemingway Ernest';
+const QUERY = encodeURIComponent(TOPIC);
+const SEARCH_TYPE = 'any'; //default
+var total= 0
+let searchQuery = ''
+let searchType = 'any'
+
+// DEFAULT HANDLERS ------------
+
+const StartFAQsHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'LaunchRequest' || request.type === 'IntentRequest' &&
+      request.intent.name === 'StartIntent');
+  },
+  handle(handlerInput) {
+
+    const speechOutput2 = 'Hello Trojan! Helen of Troy welcomes you to USC Libraries Search <break time="2s"/>'
+    + 'Ask me to search any title or works by any author and I will give top ' + NUMBER +
+     ' results from our catalogue! Please tell me the type of search you would like to do. Choose among title, author or keyword search';
+
+
+     const speechOutput = 'Hello Trojan! Helen of Troy welcomes you to USC Libraries Search <break time="0.5s"/>'
+    + 'I will give you the top 3 search results from out library catalog. Would you like to search by title, author or keyword? ';
+    searchType = 'any'
+     const text  = 'Hello Trojan! Helen of Troy welcomes you to USC Libraries Search.'
+    + 'Would you like to search by title, author or keyword? '
+    return handlerInput.responseBuilder
+      .speak(speechOutput)
+      .withSimpleCard(SKILL_NAME, text)
+      .reprompt(HELP_MESSAGE)
+      .getResponse();
+  },
+};
+
+
+const DefaultHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'UpdateDefaultIntent')
+  },
+  handle(handlerInput) {
+     const request = handlerInput.requestEnvelope.request;
+
+    //SLOT VALUE FOR SEARCHED QUERY
+    const query = request.intent.slots.number.value;
+    let outputSpeech = '';
+    outputText = '';
+    let speech = ''
+    if(query == undefined){
+      outputSpeech = 'We are not currently supporting this query.' + '<break time="2s"/>';
+      outputText ='We are not currently supporting this query.' + '\n';
+    } else {
+      NUMBER = query
+       outputSpeech = 'Okay! I have updated the default number of search results to ' + query+ '<break time="1s"/>';
+       outputText ='The default number of search results has been updated to' + query+  ' successfully. \n';
+    }
+    return handlerInput.responseBuilder
+      .speak(outputSpeech+ HELP_REPROMPT_2)
+      .withSimpleCard(SKILL_NAME, outputText+"\n" + HELP_REPROMPT_1)
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+  },
+};
+const RepeatHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'AMAZON.RepeatIntent')
+  },
+  handle(handlerInput) {
+    var output
+    if (outputText == ''){
+      output  = 'Sorry, I don\'t have any data to repeat. '
+    }else{
+      output = 'Sure. <break time="1s"/>'+ outputText
+    }
+    return handlerInput.responseBuilder
+      .speak(output+ HELP_REPROMPT_2)
+      .withSimpleCard(SKILL_NAME, output+"\n" + HELP_REPROMPT_1)
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+  },
+};
+
+
+const TypeOfSearchHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+      return (request.type === 'IntentRequest' &&
+      request.intent.name === 'TypeOfSearchIntent');
+  },
+  handle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+
+    //SLOT VALUE FOR SEARCHED QUERY
+    var query = request.intent.slots.searchType.value;
+    console.log('search type is -----------------' + query);
+    
+    
+    let outputSpeech = '';
+    outputText = '';
+    let speech = ''
+    if(query == undefined){
+      outputSpeech = 'We are not currently supporting this query.' + '<break time="2s"/>';
+      outputText ='We are not currently supporting this query.' + '\n';
+    } else {
+      var type = findType(query)
+      console.log('Type detected - '+ type)
+      search_type_enabled = true
+      if (type == 'AUTHOR'){
+        searchType = 'creator'
+        speech = 'Okay! Please tell me the author name <break time="0.5s"/> You can say author Ernest Hemingway or Author is Ernest Hemingway '
+        outputText = 'Okay! Please tell me the author name. You can say author Ernest Hemingway or Author is Ernest Hemingway '
+      }else if (type == 'TITLE'){
+        searchType = 'title'
+        speech = 'Sure, Please tell me the title name  <break time="0.5s"/> You can say title Harry Potter or title is Harry Potter '
+        outputText = 'Sure, Please tell me the title name. For example, you can say title Harry Potter or title is Harry Potter '
+      }else{
+        searchType = 'any'
+        outputText = 'Okay! What are you looking for? <break time="0.5s"/> you can say search for thermodynamics or keyword thermodynamics'
+        outputText = 'Okay! What are you looking for? you can say search for thermodynamics or keyword thermodynamics'
+      }
+      console.log('Updated Search Type to '+ searchType)
+    }
+    var response = handlerInput.responseBuilder
+      .speak(outputText)
+      .withSimpleCard(SKILL_NAME, outputText)
+      .reprompt(HELP_REPROMPT_2)
+      .getResponse();
+    response.shouldSessionEnd = false
+    return response
+  },
+};
+
+const HelpHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'LaunchRequest' || request.type === 'IntentRequest' &&
+      request.intent.name === 'AMAZON.HelpIntent');
+  },
+  handle(handlerInput) {
+    return handlerInput.responseBuilder
+      .speak(HELP_MESSAGE)
+      .withSimpleCard(SKILL_NAME, HELP_MESSAGE)
+      .reprompt(HELP_REPROMPT_2)
+      .getResponse();
+  },
+};
+
+const ExitHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return request.type === 'IntentRequest' &&
+      (request.intent.name === 'AMAZON.CancelIntent' ||
+        request.intent.name === 'AMAZON.StopIntent');
+  },
+  handle(handlerInput) {
+    return handlerInput.responseBuilder
+      .speak(STOP_MESSAGE)
+      .withSimpleCard(SKILL_NAME, STOP_MESSAGE)
+      .getResponse();
+  },
+};
+
+const SessionEndedRequestHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return request.type === 'SessionEndedRequest';
+  },
+  handle(handlerInput) {
+    console.log(`Session ended with reason: ${handlerInput.requestEnvelope.request.reason}`);
+    console.log(`Session ended: ${handlerInput.requestEnvelope.request}`);
+    return handlerInput.responseBuilder.withShouldEndSession(false).getResponse();
+  },
+};
+
+const ErrorHandler = {
+  canHandle() {
+    return true;
+  },
+  handle(handlerInput, error) {
+    console.log(`Error handled: ${error.message}`);
+
+    return handlerInput.responseBuilder
+      .speak('Sorry, an error must have occurred. Please ask any question... ')
+      .withSimpleCard(SKILL_NAME, 'Sorry, an error must have occurred. Please ask any question... ')
+      .reprompt('You can ask any question or say exit... ')
+      .getResponse();
+  },
+};
+
+
+// CUSTOM HANDLERS ------------
+const SubjectSearchHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'SubjectSearchIntent');
+  },
+
+  async handle(handlerInput) {
+
+    const request = handlerInput.requestEnvelope.request;
+
+    //SLOT VALUE FOR SEARCHED QUERY
+    const query = request.intent.slots.subjectName.value;
+    console.log('query is -----------------' + query);
+
+    let outputSpeech = '';
+    outputText = '';
+    let tot_res = '';
+
+    if(query == undefined){
+      outputSpeech = 'We are not currently supporting this query.' + '<break time="2s"/>';
+      outputText ='We are not currently supporting this query.' + '\n';
+    }
+    else{
+    try {
+      const responses = await httpsGet(query, 'sub');
+      tot_res = 'I found '+ total +' results for the search by subject for '+ query+' ';
+      outputSpeech =tot_res+ '<break time=".6s"/> Here are top ' + NUMBER + ' results : ';
+      outputText = tot_res+'Here are top ' + NUMBER + ' results : \n ';
+      var min = find_min(total, NUMBER)
+      for (var i = 0; i < min; i++) {
+        outputSpeech += (i + 1) + ': ' + responses[i] + '. <break time="1s"/> ';
+        outputText += (i + 1) + ': ' + responses[i] + '\n';
+      }
+    }
+    catch (error) {
+      outputSpeech = 'Sorry. I am unable to find "' + query + '" from our catalog. Please try again..<break time = "2s"/>';
+      outputText = 'Sorry. I am unable to find "' + query + '" from our catalog. Please try again..\n';
+      console.log(`Intent: ${handlerInput.requestEnvelope.request.intent.name}: message: ${error.message}`);
+    }
+    }
+    console.log(outputSpeech);
+    console.log(outputText);
+    var response = handlerInput.responseBuilder
+      .speak(outputSpeech + "What else can I help you with?")
+      .withSimpleCard(SKILL_NAME, outputText + "\n" )
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+    response.shouldSessionEnd = false
+    return response
+  },
+
+};
+const TitleSearchHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'TitleSearchIntent');
+  },
+
+  async handle(handlerInput) {
+
+    const request = handlerInput.requestEnvelope.request;
+
+    //SLOT VALUE FOR SEARCHED QUERY
+    const query = request.intent.slots.titleName.value;
+    console.log('query is -----------------' + query);
+
+    let outputSpeech = '';
+    outputText = '';
+  
+
+    if(query == undefined){
+      outputSpeech = 'We are not currently supporting this query.' + '<break time="2s"/>';
+      outputText ='We are not currently supporting this query.' + '\n';
+    }
+    else{
+    try {
+      const responses = await httpsGet(query, 'title');
+      let tot_res =' '
+      var min = find_min(total, NUMBER)
+      tot_res = 'I found '+ total +' results for the search by title for '+ query+' ';
+      outputSpeech = tot_res+ '<break time=".6s"/> Here are top ' + NUMBER + ' results : ';
+      outputText = tot_res+'Here are top ' + min + ' results :\n ';
+      for (var i = 0; i < min; i++) {
+        outputSpeech += (i + 1) + ': ' + responses[i] + '. <break time="1s"/> ';
+        outputText += (i + 1) + ': ' + responses[i] + '\n';
+      }
+    }
+    catch (error) {
+      outputSpeech = 'Sorry. I am unable to find "' + query + '" from our catalog. Please try again..<break time = "2s"/>';
+      outputText = 'Sorry. I am unable to find "' + query + '" from our catalog. Please try again..\n';
+      console.log(`Intent: ${handlerInput.requestEnvelope.request.intent.name}: message: ${error.message}`);
+    }
+    }
+    console.log(outputSpeech);
+    console.log(outputText);
+    searchType = 'any'
+    var response = handlerInput.responseBuilder
+      .speak(outputSpeech + "What else can I help you with?")
+      .withSimpleCard(SKILL_NAME, outputText + "\n" )
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+    response.shouldSessionEnd = false
+    return response
+  
+
+  },
+
+};
+
+const AuthorSearchHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'AuthorSearchIntent');
+  },
+
+  async handle(handlerInput) {
+
+    const request = handlerInput.requestEnvelope.request;
+
+    //SLOT VALUE FOR SEARCHED QUERY
+    const query = request.intent.slots.authorName.value;
+    console.log('query is -----------------' + query);
+
+    let outputSpeech = '';
+    outputText = '';
+    if(query == undefined){
+      outputSpeech = 'We are not currently supporting this query.' + '<break time="2s"/>';
+      outputText ='We are not currently supporting this query.' + '\n';
+    }
+    else{
+    try {
+      const responses = await httpsGet(query, 'creator');
+      var min = find_min(total, NUMBER)
+      let tot_res = 'I found '+ total +' results for the search by author '+ query+' ';
+      outputSpeech = tot_res+ '<break time=".6s"/> Here are top ' + NUMBER + ' results : ';
+      outputText = tot_res+'Here are top ' + min + ' results :\n ';
+      for (var i = 0; i < min; i++) {
+        outputSpeech += (i + 1) + ': ' + responses[i] + '. <break time="1s"/> ';
+        outputText += (i + 1) + ': ' + responses[i] + '\n';
+      }
+    }
+    catch (error) {
+      outputSpeech = 'Sorry but I am unable to find "' + query + '" from our catalog. Please try again..<break time="2s"/>';
+      outputText = 'Sorry but I am unable to find "' + query + '" from our catalog. Please try again..\n';
+      console.log(`Intent: ${handlerInput.requestEnvelope.request.intent.name}: message: ${error.message}`);
+    }
+    }
+    console.log(outputSpeech);
+    console.log(outputText);
+    searchType = 'any'
+    var response = handlerInput.responseBuilder
+      .speak(outputSpeech + "What else can I help you with?")
+      .withSimpleCard(SKILL_NAME, outputText + "\n" )
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+    response.shouldSessionEnd = false
+    return response
+ 
+
+  },
+
+};
+
+const KeywordSearchHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'KeywordSearchIntent');
+  },
+
+  async handle(handlerInput) {
+
+    const request = handlerInput.requestEnvelope.request;
+
+    //SLOT VALUE FOR SEARCHED QUERY
+    var query = request.intent.slots.keyword.value;
+    console.log('Keyword Search Query is -----------------' + query);
+
+    let outputSpeech = '';
+    outputText = '';
+    if(query == undefined){
+      outputSpeech = 'We are not currently supporting this query.' + '<break time="2s"/>';
+      outputText ='We are not currently supporting this query.' + '\n';
+    }
+    else{
+    query = query.toLowerCase() ;
+    console.log('KeywordSearchHandler keyword is ' +query )
+    if(arrayContains('stop', query) || arrayContains('exit',query)){
+       return handlerInput.responseBuilder
+      .speak(STOP_MESSAGE)
+      .withSimpleCard(SKILL_NAME, STOP_MESSAGE)
+      .getResponse();
+    }
+    else {
+      try {
+       console.log('Search Type is '+ searchType)
+       var type = searchType
+       if (searchType ==  'any'){
+         type = 'keyword'
+       }
+       const responses = await httpsGet(query, searchType);
+       var min = find_min(total, NUMBER)
+       let tot_res = 'I found '+ total +' results for the search by '+type+' for '+ query+' ';
+       outputSpeech = tot_res+ '<break time=".6s"/> Here are top ' + NUMBER + ' results : ';
+       outputText = tot_res+'Here are top ' + min + ' results :\n ';
+       
+       for (var i = 0; i < min; i++) {
+         outputSpeech += (i + 1) + ': ' + responses[i] + '. <break time="1s"/> ';
+         outputText += (i + 1) + ': ' + responses[i] + '\n';
+       }
+      }
+      catch (error) {
+        outputSpeech = 'Sorry but I am unable to find "' + query + '" from our catalog. Please try again..<break time="2s"/>';
+        outputText = 'Sorry but I am unable to find "' + query + '" from our catalog. Please try again..\n';
+        console.log(`Intent: ${handlerInput.requestEnvelope.request.intent.name}: message: ${error.message}`);
+      }
+    }
+    }
+    searchType = 'any'
+    search_type_enabled = false
+    console.log(outputSpeech);
+    console.log(outputText);
+    var response = handlerInput.responseBuilder
+      .speak(outputSpeech +"What else can I help you with?")
+      .withSimpleCard(SKILL_NAME, outputText + "\n" )
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+    return response
+ 
+  },
+
+};
+
+
+//timings for any library on a given date
+const TimeSearchHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'TimeSearchIntent');
+  },
+
+  async handle(handlerInput) {
+
+    const request = handlerInput.requestEnvelope.request;
+
+    //SLOT VALUE FOR SEARCHED QUERY
+    var query = request.intent.slots.libraryName.value;
+    var date = request.intent.slots.dayDate.value;
+    let newdate ='';
+    if(date == undefined){
+      newdate = getTodayDate();
+    }
+    else{
+      newdate = date.toString();
+    }
+    
+    console.log('query is -----------------' + query);
+    console.log('date is -----------------' + newdate);
+
+    
+    let outputSpeech = '';
+    outputText = '';
+    if(query == undefined){
+      outputSpeech = 'We are not currently supporting this query.' + '<break time="2s"/>';
+      outputText ='We are not currently supporting this query.' + '\n';
+    }
+    else{ 
+      
+      query = formatQuery(query);
+      
+    try {
+     
+     let libname=query;
+     let displayname = query;
+     //hard-coding variations -----------------------------
+     switch(query){
+       
+        case 'a counting': 
+        case 'counting':
+        case 'accounting': displayname ='Accounting Library'; libname ='accounting'; break;
+        
+        case 'leavy':
+        case 'leaving':
+        case 'levy':
+        case 'levi' :
+        case 'leavi':
+        case 'leavie':
+        case 'levie':
+        case 'levis':
+        case 'leavey': displayname = 'Leavey Library'; libname = 'leavey'; break;
+        
+        case 'dohany':
+        case 'do heany':
+        case 'doheni' :
+        case 'do heni':
+        case 'do haney':
+        case 'do heaney' :
+        case 'do heani':
+        case 'doheni':
+        case 'dohaney':
+        case 'doheaney' :
+        case 'doheani':
+        case 'duheani':
+        case 'dohani' :
+        case 'do hani':
+        case 'do haeney':
+        case 'do haaney' :
+        case 'do haeni':
+        case 'duhaney':
+        case 'do heny':
+        case 'dohany memorial':
+        case 'do heany memorial':
+        case 'doheni memorial' :
+        case 'do heni memorial':
+        case 'do haney memorial':
+        case 'do heaney memorial' :
+        case 'do heani memorial':
+        case 'doheni memorial':
+        case 'dohaney memorial':
+        case 'doheaney memorial' :
+        case 'doheani memorial':
+        case 'duheani memorial':
+        case 'dohani memorial' :
+        case 'do hani memorial':
+        case 'do haeney memorial':
+        case 'do haaney memorial' :
+        case 'do haeni memorial':
+        case 'duhaney memorial':
+        case 'do heny memorial':
+        case 'tahini':
+        case 'doheny': displayname='Doheny Memorial Library'; libname = 'doheny'; break;
+        
+        case 'dan':
+        case 'dental':
+        case 'dental library':
+        case 'wilson dental': displayname ='Wilson Dental Library' ; libname = 'den'; break;
+        
+        case 'speckle':
+        case 'special collections':
+        case 'university archives':
+        case 'spectral' : displayname = 'Special Collections Library'; libname = 'speccoll';break;
+        
+        case '1 hour kyf' :
+        case ' 1 hour kai\'s ':
+        case '1 hour kite': 
+        case 'one archive': 
+        case 'one archives':
+        case 'one hour kaive': displayname = 'ONE Archives Library' ; libname = 'onearchive';break;
+ 
+        case 'science':
+        case 'science and engineering': displayname = 'Science and Engineering Library' ; libname = 'science';break;
+        
+        case 'grand':
+        case 'grand depository': 
+        case 'grand avenue': displayname = 'Grand Depository' ; libname = 'granddepos'; break;
+        
+        case 'norris':
+        case 'norris medical':
+        case 'medical':
+        case 'med': displayname = 'Norris Medical Library' ; libname = 'med'; break;
+          
+        case 'gaughan and tiberti':
+        case 'business': displayname = 'Gaughan and Tiberti Business Library' ; libname = 'business'; break;
+            
+        case 'philosophy':
+        case 'who\'s':
+        case 'hoose':
+        case 'hoose library of philosophy': displayname= 'Hoose Library of Philosophy'; libname='philosophy';break;
+        
+        case 'vkc': displayname='VKC Library' ; libname = 'vkc';break;
+        
+        case 'cinema':
+        case 'cinematic arts': displayname='Cinematic Arts Library'; libname = 'cinema'; break;
+          
+        case 'east':
+        case 'east asian': displayname='East Asian Library';libname ='east'; break;
+        
+        case 'architecture and fine arts':
+        case 'afa':
+        case 'architecture': displayname ='Architecture and Fine Arts Library'; libname='afa'; break;
+     }
+     
+     //----------------------------
+     
+      console.log(libname ,  newdate +"Z");
+      
+      const responses = await httpsGetTimes(libname, newdate +"Z" ,displayname);
+
+      outputSpeech = 'Here are library hours for ' + displayname + ' for '+ newdate +'<break time = "1s"/> ';
+      outputText = 'Here are library hours for ' + displayname + ' for '+ newdate +' \n';
+
+      outputSpeech += 'From : ' + formatDate(responses.from) + ' till : ' + formatDate(responses.to) + '<break time="2s"/> ';
+      outputText += 'From : ' + formatDate(responses.from) + '\n Till : ' + formatDate(responses.to) + '\n ';
+
+    }
+    
+    catch (error) {
+      console.log(error);
+      
+      outputSpeech = error + '<break time="2s"/>';
+      outputText = error + '\n';
+      
+      console.log(`Intent: ${handlerInput.requestEnvelope.request.intent.name}: message: ${error.message}`);
+    }
+    }
+    console.log(outputSpeech);
+    console.log(outputText);
+
+    return handlerInput.responseBuilder
+      .speak(outputSpeech + "What else can I help you with?")
+      .withSimpleCard(SKILL_NAME, outputText + "\n" + "What else can I help you with?")
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+
+  },
+
+};
+
+//opening times for any library on any date
+const StartTimeHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'StartTimeIntent');
+  },
+
+  async handle(handlerInput) {
+
+    const request = handlerInput.requestEnvelope.request;
+
+    //SLOT VALUE FOR SEARCHED QUERY
+    var query = request.intent.slots.libraryName.value;
+    var date = request.intent.slots.dayDate.value;
+    let newdate ='';
+    if(date == undefined){
+      newdate = getTodayDate();
+    }
+    else{
+      newdate = date.toString();
+    }
+    
+    console.log('query is -----------------' + query);
+    console.log('date is -----------------' + newdate);
+
+    
+    let outputSpeech = '';
+    outputText = '';
+    if(query == undefined){
+      outputSpeech = 'We are not currently supporting this query.' + '<break time="2s"/>';
+      outputText ='We are not currently supporting this query.' + '\n';
+    }
+    else{
+      
+        query = formatQuery(query);
+        
+    try {
+     
+     let libname=query;
+     let displayname = query;
+     //hard-coding variations -----------------------------
+     switch(query){
+       
+        case 'a counting': 
+        case 'counting':
+        case 'accounting': displayname ='Accounting Library'; libname ='accounting'; break;
+        
+        case 'leavy':
+        case 'leaving':
+        case 'levy':
+        case 'levi' :
+        case 'leavi':
+        case 'leavie':
+        case 'levie':
+        case 'levis':
+        case 'leavey': displayname = 'Leavey Library'; libname = 'leavey'; break;
+        
+        case 'dohany':
+        case 'do heany':
+        case 'doheni' :
+        case 'do heni':
+        case 'do haney':
+        case 'do heaney' :
+        case 'do heani':
+        case 'doheni':
+        case 'dohaney':
+        case 'doheaney' :
+        case 'doheani':
+        case 'duheani':
+        case 'dohani' :
+        case 'do hani':
+        case 'do haeney':
+        case 'do haaney' :
+        case 'do haeni':
+        case 'duhaney':
+        case 'do heny':
+        case 'dohany memorial':
+        case 'do heany memorial':
+        case 'doheni memorial' :
+        case 'do heni memorial':
+        case 'do haney memorial':
+        case 'do heaney memorial' :
+        case 'do heani memorial':
+        case 'doheni memorial':
+        case 'dohaney memorial':
+        case 'doheaney memorial' :
+        case 'doheani memorial':
+        case 'duheani memorial':
+        case 'dohani memorial' :
+        case 'do hani memorial':
+        case 'do haeney memorial':
+        case 'do haaney memorial' :
+        case 'do haeni memorial':
+        case 'duhaney memorial':
+        case 'do heny memorial':
+        case 'tahini':
+        case 'doheny': displayname='Doheny Memorial Library'; libname = 'doheny'; break;
+        
+        case 'dan':
+        case 'dental':
+        case 'dental library':
+        case 'wilson dental': displayname ='Wilson Dental Library' ; libname = 'den'; break;
+        
+        case 'speckle':
+        case 'special collections':
+        case 'university archives':
+        case 'spectral' : displayname = 'Special Collections Library'; libname = 'speccoll';break;
+        
+        case '1 hour kyf' :
+        case ' 1 hour kai\'s ':
+        case '1 hour kite': 
+        case 'one archive': 
+        case 'one archives':
+        case 'one hour kaive': displayname = 'ONE Archives Library' ; libname = 'onearchive';break;
+ 
+        case 'science':
+        case 'science and engineering': displayname = 'Science and Engineering Library' ; libname = 'science';break;
+        
+        case 'grand':
+        case 'grand depository': 
+        case 'grand avenue': displayname = 'Grand Depository' ; libname = 'granddepos'; break;
+        
+        case 'norris':
+        case 'norris medical':
+        case 'medical':
+        case 'med': displayname = 'Norris Medical Library' ; libname = 'med'; break;
+          
+        case 'gaughan and tiberti':
+        case 'business': displayname = 'Gaughan and Tiberti Business Library' ; libname = 'business'; break;
+            
+        case 'philosophy':
+        case 'who\'s':
+        case 'hoose':
+        case 'hoose library of philosophy': displayname= 'Hoose Library of Philosophy'; libname='philosophy';break;
+        
+        case 'vkc': displayname='VKC Library' ; libname = 'vkc';break;
+        
+        case 'cinema':
+        case 'cinematic arts': displayname='Cinematic Arts Library'; libname = 'cinema'; break;
+          
+        case 'east':
+        case 'east asian': displayname='East Asian Library';libname ='east'; break;
+        
+        case 'architecture and fine arts':
+        case 'afa':
+        case 'architecture': displayname ='Architecture and Fine Arts Library'; libname='afa'; break;
+     }
+     
+     //----------------------------
+     
+      console.log(libname ,  newdate +"Z");
+      
+      const responses = await httpsGetTimes(libname, newdate +"Z" ,displayname);
+
+      outputSpeech += displayname + ' will be opening at '+ formatDate(responses.from) + ' on ' + newdate + '.<break time="2s"/> ';
+      outputText += displayname + ' will be opening at '+ formatDate(responses.from) + ' on '  + newdate +  '.\n ';
+
+    }
+    
+    catch (error) {
+      console.log(error);
+      
+      outputSpeech = error + '<break time="2s"/>';
+      outputText = error + '\n';
+      
+      console.log(`Intent: ${handlerInput.requestEnvelope.request.intent.name}: message: ${error.message}`);
+    }
+    }
+    console.log(outputSpeech);
+    console.log(outputText);
+
+    return handlerInput.responseBuilder
+      .speak(outputSpeech + "What else can I help you with?")
+      .withSimpleCard(SKILL_NAME, outputText + "\n" + "What else can I help you with?")
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+
+  },
+
+};
+
+//closing times for any library on any date
+const EndTimeHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'EndTimeIntent');
+  },
+
+  async handle(handlerInput) {
+
+    const request = handlerInput.requestEnvelope.request;
+
+    //SLOT VALUE FOR SEARCHED QUERY
+    var query = request.intent.slots.libraryName.value;
+    var date = request.intent.slots.dayDate.value;
+    let newdate ='';
+    if(date == undefined){
+      newdate = getTodayDate();
+    }
+    else{
+      newdate = date.toString();
+    }
+    
+    console.log('query is -----------------' + query);
+    console.log('date is -----------------' + newdate);
+
+    
+    let outputSpeech = '';
+    outputText = '';
+    if(query == undefined){
+      outputSpeech = 'We are not currently supporting this query.' + '<break time="2s"/>';
+      outputText ='We are not currently supporting this query.' + '\n';
+    }
+    else{ 
+        query = formatQuery(query);
+      
+    try {
+     
+     let libname=query;
+     let displayname = query;
+     //hard-coding variations -----------------------------
+     switch(query){
+       
+        case 'a counting': 
+        case 'counting':
+        case 'accounting': displayname ='Accounting Library'; libname ='accounting'; break;
+        
+        case 'leavy':
+        case 'leaving':
+        case 'levy':
+        case 'levi' :
+        case 'leavi':
+        case 'leavie':
+        case 'levie':
+        case 'levis':
+        case 'leavey': displayname = 'Leavey Library'; libname = 'leavey'; break;
+        
+        case 'dohany':
+        case 'do heany':
+        case 'doheni' :
+        case 'do heni':
+        case 'do haney':
+        case 'do heaney' :
+        case 'do heani':
+        case 'doheni':
+        case 'dohaney':
+        case 'doheaney' :
+        case 'doheani':
+        case 'duheani':
+        case 'dohani' :
+        case 'do hani':
+        case 'do haeney':
+        case 'do haaney' :
+        case 'do haeni':
+        case 'duhaney':
+        case 'do heny':
+        case 'dohany memorial':
+        case 'do heany memorial':
+        case 'doheni memorial' :
+        case 'do heni memorial':
+        case 'do haney memorial':
+        case 'do heaney memorial' :
+        case 'do heani memorial':
+        case 'doheni memorial':
+        case 'dohaney memorial':
+        case 'doheaney memorial' :
+        case 'doheani memorial':
+        case 'duheani memorial':
+        case 'dohani memorial' :
+        case 'do hani memorial':
+        case 'do haeney memorial':
+        case 'do haaney memorial' :
+        case 'do haeni memorial':
+        case 'duhaney memorial':
+        case 'do heny memorial':
+        case 'tahini':
+        case 'doheny': displayname='Doheny Memorial Library'; libname = 'doheny'; break;
+        
+        case 'dan':
+        case 'dental':
+        case 'dental library':
+        case 'wilson dental': displayname ='Wilson Dental Library' ; libname = 'den'; break;
+        
+        case 'speckle':
+        case 'special collections':
+        case 'university archives':
+        case 'spectral' : displayname = 'Special Collections Library'; libname = 'speccoll';break;
+        
+        case '1 hour kyf' :
+        case ' 1 hour kai\'s ':
+        case '1 hour kite': 
+        case 'one archive': 
+        case 'one archives':
+        case 'one hour kaive': displayname = 'ONE Archives Library' ; libname = 'onearchive';break;
+ 
+        case 'science':
+        case 'science and engineering': displayname = 'Science and Engineering Library' ; libname = 'science';break;
+        
+        case 'grand':
+        case 'grand depository': 
+        case 'grand avenue': displayname = 'Grand Depository' ; libname = 'granddepos'; break;
+        
+        case 'norris':
+        case 'norris medical':
+        case 'medical':
+        case 'med': displayname = 'Norris Medical Library' ; libname = 'med'; break;
+          
+        case 'gaughan and tiberti':
+        case 'business': displayname = 'Gaughan and Tiberti Business Library' ; libname = 'business'; break;
+            
+        case 'philosophy':
+        case 'who\'s':
+        case 'hoose':
+        case 'hoose library of philosophy': displayname= 'Hoose Library of Philosophy'; libname='philosophy';break;
+        
+        case 'vkc': displayname='VKC Library' ; libname = 'vkc';break;
+        
+        case 'cinema':
+        case 'cinematic arts': displayname='Cinematic Arts Library'; libname = 'cinema'; break;
+          
+        case 'east':
+        case 'east asian': displayname='East Asian Library';libname ='east'; break;
+        
+        case 'architecture and fine arts':
+        case 'afa':
+        case 'architecture': displayname ='Architecture and Fine Arts Library'; libname='afa'; break;
+     }
+     
+     //----------------------------
+     
+      console.log(libname ,  newdate +"Z");
+      
+      const responses = await httpsGetTimes(libname, newdate +"Z" ,displayname);
+      outputSpeech += displayname + ' will be closing at '+ formatDate(responses.to) + ' on ' + newdate + '.<break time="2s"/> ';
+      outputText += displayname + ' will be closing at '+ formatDate(responses.to) + ' on ' + newdate +  '.\n ';
+
+    }
+    
+    catch (error) {
+      console.log(error);
+      
+      outputSpeech = error + '<break time="2s"/>';
+      outputText = error + '\n';
+      
+      console.log(`Intent: ${handlerInput.requestEnvelope.request.intent.name}: message: ${error.message}`);
+    }
+    }
+    console.log(outputSpeech);
+    console.log(outputText);
+
+    return handlerInput.responseBuilder
+      .speak(outputSpeech + "What else can I help you with?")
+      .withSimpleCard(SKILL_NAME, outputText + "\n" + "What else can I help you with?")
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+
+  },
+
+};
+
+//all libraries currently open today
+const OpenNowHandler = { 
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return (request.type === 'IntentRequest' &&
+      request.intent.name === 'OpenNow');
+  },
+
+  async handle(handlerInput) {
+    
+    let outputSpeech = 'The following libraries are currently open: <break time = "1s"/>';
+    outputText = 'The following libraries are currently open:\n';
+    
+    var time = getTimeNow();
+    var count=0;
+    for(var i = 0 ; i < libnames.length; i++){
+    try{
+      
+      const response = await httpsGetTimes(libnames[i],getTodayDate()+"Z",displaynames[i]);
+      console.log(response);
+      
+      if(isOpen(response.from,response.to,time)){
+        
+        outputSpeech+=count+1+". " + displaynames[i]+' <break time="0.5s"/>';
+        outputText+= count+1+". " +displaynames[i]+" library\n";
+        
+        count+=1;
+      }
+      
+     }
+    catch (error){
+     // outputSpeech ='Error with data. Please try again later. <break time="1s"/>';
+    //  outputText ='Error with data.Please try again later. \n';
+    //  break;
+    }
+    
+    }
+    return handlerInput.responseBuilder
+      .speak(outputSpeech + "<break time='1s'/>" +HELP_REPROMPT_2)
+      .withSimpleCard(SKILL_NAME, outputText + "\n" )
+      .reprompt(HELP_REPROMPT_1)
+      .getResponse();
+
+  },
+
+};
+
+//handler for search by date/day -- in this week!
+//events handler!
+
+
+
+//HELPER METHODS --------------------------------------------------------------------------
+
+function httpsGet(query, searchtype) {
+
+  return new Promise(((resolve, reject) => {
+
+    let result = '';
+    const url = 'https://api-na.hosted.exlibrisgroup.com/primo/v1/search?q=' + searchtype + ',contains,"' +
+      encodeURIComponent(query) + '"&pfilter=rtype,exact,books&lang=eng&offset=0&limit=10&tab=' + QUERY_TYPE +
+      '&vid=01USC_INST:01USC&scope=MyInst_and_CI&apikey=' + API_KEY+'&qInclude=facet_rtype,include,books&scope=MyInst_and_CI&sortby=rank';
+    console.log("API URL :----- " + url);
+
+    // HTTPS GET CALL TO API
+    https.get(url, (resp) => {
+
+      //EMPTY VARIABLES
+      let data = '';
+      let jsondata = '';
+      let result = [];
+      console.log("response code --------" + resp.statusCode);
+
+      //RECIEVE CHUNK OF DATA
+      resp.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      //AFTER RECIEVING ENTIRE DATA
+      resp.on('end', () => {
+
+        jsondata = JSON.parse(data);
+        var size = jsondata.docs.length;
+
+        var isvalidquery = jsondata.info.total;
+
+        //LOG RECIEVED INFO AND TITLE
+        console.log("INFO_TOTAL ---" + jsondata.info.total);
+        total = jsondata.info.total
+        
+        if (isvalidquery !== 0) {
+          let count = 0;
+          //  if(size>NUMBER)
+          //  size = NUMBER;
+
+          for (var i = 0; i < size; i++) {
+
+            let speech = '';
+
+            speech = jsondata.docs[i].pnx.sort.title + "..";
+
+            //ADD AUTHOR IF ONLY TITLE SEARCH
+            if (searchtype === 'title' && jsondata.docs[i].pnx.sort.author)
+              speech += "By author : " + jsondata.docs[i].pnx.sort.author + "..";
+
+            //REMOVE '&'
+            speech = format(speech);
+
+            result.push(speech);
+
+            /* var found = array.find((element, index) => (array.indexOf(element) != index)); */
+            result = result.filter((element, index) => (result.indexOf(element) == index));
+            count = result.length;
+
+
+            console.log(result + " "+ count);
+
+            /* var index = result.indexOf("undefined");
+            if(index > -1){
+              result.splice(index,1);
+              count-=1;
+            } */
+
+
+            if (count === NUMBER)
+              break;
+
+          }
+
+          resolve(result);
+        }
+
+        else {
+          result = 'Sorry. No data found';
+          reject(result);
+        }
+
+
+      });
+
+    }).on("error", (err) => {
+      console.log("Error: " + err.message);
+      result = 'Sorry. No data found';
+      reject(result);
+    });
+  }));
+}
+
+function httpsGetTimes(query, datetime, displayname) {
+
+  return new Promise(((resolve, reject) => {
+
+    const url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/conf/libraries/' + encodeURIComponent(query.toUpperCase()) +
+      '/open-hours?from=today&format=json&apikey=' + API_KEY_2;
+
+    console.log("API URL :----- " + url);
+
+    // HTTPS GET CALL TO API
+    https.get(url, (resp) => {
+
+      //EMPTY VARIABLES
+      let data = '';
+      let jsondata = '';
+
+      console.log("response code --------" + resp.statusCode);
+      
+      if (resp.statusCode !== 200) 
+        reject(  'Sorry. No data found for:\n '+ '"' + query + '"'  );
+      
+
+      //RECIEVE CHUNK OF DATA
+      resp.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      //AFTER RECIEVING ENTIRE DATA
+      resp.on('end', () => {
+
+        jsondata = JSON.parse(data);
+
+        console.log("JSON_DATA ----"+jsondata);
+        
+        var isvalidquery = jsondata.day;
+        
+        if (isvalidquery) {
+          var done =false;
+          
+          for (var i = 0 ; i<8 ;i++)
+            if( isvalidquery[i].date === datetime){
+              console.log(isvalidquery[i].date);
+              console.log(datetime);
+                done = true;
+                if(isvalidquery[i].hour.length > 0)
+                resolve(isvalidquery[i].hour[0]);
+                else{
+                 // var libname = query.charAt(0).toUpperCase() + query.slice(1);
+                  reject(displayname + " will be closed for the day.");
+                }
+            }
+          if(!done)
+          reject(  'Sorry. No data found for:\n '+ '"' + query + '"' );
+          
+        }
+
+        else {
+          reject(  'Sorry. No data found for:\n '+ '"' + query + '"'  );
+        }
+
+        
+      });
+
+    }).on("error", (err) => {
+      console.log("Error: " + err.message);
+      reject( 'Sorry. No data found for:\n '+ '"' + query + '"'  );
+    });
+  }));
+}
+
+function findType(type){
+  
+  console.log('checking type for - '+ type)
+  
+  if(arrayContains('ti', type) || arrayContains('l', type)){
+    return 'TITLE'
+  }else if (arrayContains('au', type) || arrayContains('ot', type) || arrayContains('crea', type) || arrayContains('by', type) || arrayContains('ut', type) ){
+    return 'AUTHOR'
+  }
+  return 'KEYWORD'
+}
+function arrayContains(search, array)
+{
+    console.log('Checking presence of '+ search + ' in  '+ array)
+    return (array.indexOf(search) > -1);
+}
+
+function resultOk(result) {
+  return result.filter((element, index) => (result.indexOf(element) == index));
+}
+
+function format(line) {
+  return line.replace(/&/g, ' and ');
+}
+
+function formatDate(date) {
+
+  var hours = date.substring(0, date.indexOf(":"));
+  var minutes = date.substring(date.indexOf(":") + 1);
+  var daytime = "AM";
+  if (hours >= 12) {
+    hours -= 12;
+    daytime = "PM";
+  }
+  if (hours == 0) {
+    hours = 12;
+  }
+  var newtiming = hours + ":" + minutes + " " + daytime;
+  console.log(newtiming);
+  return newtiming;
+}
+
+function formatQuery(query){
+  query = query.toLowerCase();
+      if(query.search('library')!==-1){
+       query =  query.substring(0,query.search('library')).trim();
+      }
+      
+       console.log('formatted query is -----------------' + query);
+       return query;
+}
+
+function getTodayDate(){
+  var today = new Date();
+    console.log(today);
+  var dd = today.getDate();
+  var mm = today.getMonth()+1; 
+  var yyyy = today.getFullYear();
+  if(dd<10) 
+      dd='0'+dd;
+  if(mm<10) 
+      mm='0'+mm;
+  today = yyyy+'-'+mm+'-'+dd;
+
+  return today;
+}
+
+function getTimeNow(){
+  var today = new Date();
+    //console.log(today);
+    
+  //PST timezone
+  var h = today.getHours() - 8;
+  var m = today.getMinutes();
+  var currtime =h+":"+m ;
+  
+  return currtime;
+}
+function find_min(a,b){
+  if (a <b) return a
+  return b
+  
+}
+function isOpen(starttime, endtime,time){
+ 
+  var h_start = Number(starttime.substring(0,starttime.indexOf(":")) );
+  var m_start = Number(starttime.substring(starttime.indexOf(":") + 1)); 
+  var h_end= Number(endtime.substring(0,endtime.indexOf(":")) );
+  var m_end= Number(endtime.substring(endtime.indexOf(":") + 1));
+  var h_now = Number(time.substring(0,time.indexOf(":"))) ;
+  var m_now = Number(time.substring(time.indexOf(":") + 1)); 
+  
+  // console.log(h_now +" : "+ m_now);
+  // console.log(h_start +" : "+ m_start);
+  // console.log(h_end +" : "+ m_end);
+  
+  if(h_now < h_start || h_now > h_end )
+    return false;
+    
+  if(h_now === h_start){
+    if(m_now < m_start)
+      return false;
+  }
+
+  if(h_now === h_end){
+    if(m_now > m_end)
+      return false;
+  }
+  
+  return true;
+  
+}
+exports.handler = skillBuilder
+  .addRequestHandlers(
+    StartFAQsHandler,
+    HelpHandler,
+    ExitHandler,
+    TitleSearchHandler,
+    SubjectSearchHandler,
+    AuthorSearchHandler,
+    KeywordSearchHandler,
+    //TimeSearchHandler,
+    StartTimeHandler,
+    EndTimeHandler,
+    RepeatHandler,
+    TypeOfSearchHandler,
+    DefaultHandler,
+    //OpenNowHandler,
+    SessionEndedRequestHandler
+  )
+  .addErrorHandlers(ErrorHandler)
+  .lambda();
